@@ -1,0 +1,18 @@
+dist/index.js
+  h_c76f4ec917e583 231-235,1490-1497,3030,3032
+src/index.ts
+  h_c76f4ec917e583 272-276,1890-1897,3535,3537
+tests/native.test.mjs
+  h_c76f4ec917e583 777,821
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "50374d147b20d58e8ac15bb849ab67d4799f96ba",
+  "prompts": {},
+  "humans": {
+    "h_c76f4ec917e583": {
+      "author": "TentacleCat <131333217+TentacleCat@users.noreply.github.com>"
+    }
+  }
+}
