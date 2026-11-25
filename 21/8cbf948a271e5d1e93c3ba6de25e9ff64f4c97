@@ -1,0 +1,38 @@
+dist/counterpart/remote.js
+  h_c76f4ec917e583 36
+dist/index.js
+  h_c76f4ec917e583 55,2411-2481,3082-3083,4328-4423,4599-4601
+dist/printers/bambu.d.ts
+  h_c76f4ec917e583 44-45
+dist/printers/bambu.js
+  h_c76f4ec917e583 1150-1155,1289,1305
+dist/slicer/plate-slice.d.ts
+  h_c76f4ec917e583 1-135
+dist/slicer/plate-slice.js
+  h_c76f4ec917e583 1-533
+dist/tool-annotations.js
+  h_c76f4ec917e583 59
+src/counterpart/remote.ts
+  h_c76f4ec917e583 59
+src/index.ts
+  h_c76f4ec917e583 86,2916-2986,3587-3588,4952-5055,5274-5276
+src/printers/bambu.ts
+  h_c76f4ec917e583 266-267,1347-1352,1469-1470,1486
+src/slicer/plate-slice.ts
+  h_c76f4ec917e583 1-674
+src/tool-annotations.ts
+  h_c76f4ec917e583 83
+tests/plate-slice.test.mjs
+  h_c76f4ec917e583 1-215
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "218cbf948a271e5d1e93c3ba6de25e9ff64f4c97",
+  "prompts": {},
+  "humans": {
+    "h_c76f4ec917e583": {
+      "author": "TentacleCat <131333217+TentacleCat@users.noreply.github.com>"
+    }
+  }
+}
