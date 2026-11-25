@@ -1,0 +1,24 @@
+src/counterpart/remote.ts
+  h_c76f4ec917e583 74-75
+src/index.ts
+  h_c76f4ec917e583 3298-3338,4426-4458
+src/printers/bambu.ts
+  h_c76f4ec917e583 21-28,1848-1927
+src/safety/motion.ts
+  h_c76f4ec917e583 1-331
+src/tool-annotations.ts
+  h_c76f4ec917e583 112-113
+tests/motion-control.test.mjs
+  h_c76f4ec917e583 1-279
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "f48c25dd159ad75823a9f3adf55400c4b720c4a1",
+  "prompts": {},
+  "humans": {
+    "h_c76f4ec917e583": {
+      "author": "TentacleCat <131333217+TentacleCat@users.noreply.github.com>"
+    }
+  }
+}
