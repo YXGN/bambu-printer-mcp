@@ -41,6 +41,8 @@ interface BambuPrintOptionsInternal {
      */
     amsSlots?: number[];
     md5?: string;
+    /** Optional non-fatal (severity 2/3) HMS codes explicitly acknowledged by the operator; fatal (severity 1) faults still block. */
+    acknowledgedHmsCodes?: string[];
 }
 /** A merged MQTT report and when it last arrived (ms since epoch). */
 export type ProgressReport = {

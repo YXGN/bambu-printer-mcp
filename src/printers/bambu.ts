@@ -263,6 +263,8 @@ interface BambuPrintOptionsInternal {
    */
   amsSlots?: number[];
   md5?: string;
+  /** Optional non-fatal (severity 2/3) HMS codes explicitly acknowledged by the operator; fatal (severity 1) faults still block. */
+  acknowledgedHmsCodes?: string[];
 }
 
 interface ProjectFileMetadata {
@@ -1342,7 +1344,12 @@ export class BambuImplementation {
         throw new Error("Legacy gcode_file printing requires a single plate_1.gcode. Export only the selected plate or use a .3mf project_file export.");
       }
     }
-    let requirements: PrinterStateRequirements = { ...inspection, amsMapping: baseMapping, useAMS: options.useAMS !== false };
+    let requirements: PrinterStateRequirements = {
+      ...inspection,
+      amsMapping: baseMapping,
+      useAMS: options.useAMS !== false,
+      ...(options.acknowledgedHmsCodes?.length ? { acknowledgedHmsCodes: options.acknowledgedHmsCodes } : {}),
+    };
     const initialStatus = await this.getSafetyStatus(host, serial, token);
     if (legacyContainer) requirements = this.validateLoadedGcodeState(initialStatus, inspection);
     else validatePrinterState(initialStatus, requirements);
@@ -1459,6 +1466,8 @@ export class BambuImplementation {
     await new Promise((resolve) => setTimeout(resolve, 300));
     const dispatch = await watcher.settled();
 
+    const warnings = collectAcknowledgedHmsLabels(dispatchStatus.raw, options.acknowledgedHmsCodes);
+
     return {
       status: "success",
       calibration,
@@ -1474,6 +1483,7 @@ export class BambuImplementation {
       amsMapping,
       subtaskName,
       ...(taskId !== undefined ? { taskId } : {}),
+      ...(warnings.length ? { warnings } : {}),
     };
   }
 

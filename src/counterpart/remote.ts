@@ -56,6 +56,7 @@ export const REMOTE_SCOPES: Readonly<Record<string, RemoteScope>> = {
   fusion_mcp_setup: "read", // checks only; install raises it
   // design
   slice_stl: "design",
+  slice_plate: "design",
   lay_flat: "design",
   counterpart_make_3mf: "design",
   counterpart_part_meshes: "design",

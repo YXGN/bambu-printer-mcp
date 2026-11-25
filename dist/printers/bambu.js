@@ -1147,7 +1147,12 @@ export class BambuImplementation {
                 throw new Error("Legacy gcode_file printing requires a single plate_1.gcode. Export only the selected plate or use a .3mf project_file export.");
             }
         }
-        let requirements = { ...inspection, amsMapping: baseMapping, useAMS: options.useAMS !== false };
+        let requirements = {
+            ...inspection,
+            amsMapping: baseMapping,
+            useAMS: options.useAMS !== false,
+            ...(options.acknowledgedHmsCodes?.length ? { acknowledgedHmsCodes: options.acknowledgedHmsCodes } : {}),
+        };
         const initialStatus = await this.getSafetyStatus(host, serial, token);
         if (legacyContainer)
             requirements = this.validateLoadedGcodeState(initialStatus, inspection);
@@ -1281,6 +1286,7 @@ export class BambuImplementation {
         this.recordCheckedJob(host, serial, remoteProjectPath, requirements, resumeFile);
         await new Promise((resolve) => setTimeout(resolve, 300));
         const dispatch = await watcher.settled();
+        const warnings = collectAcknowledgedHmsLabels(dispatchStatus.raw, options.acknowledgedHmsCodes);
         return {
             status: "success",
             calibration,
@@ -1296,6 +1302,7 @@ export class BambuImplementation {
             amsMapping,
             subtaskName,
             ...(taskId !== undefined ? { taskId } : {}),
+            ...(warnings.length ? { warnings } : {}),
         };
     }
     async cancelJob(host, serial, token, dispatch) {

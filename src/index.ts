@@ -83,6 +83,7 @@ import { isStatusOnlyModel, statusOnlyDisplayName, statusOnlyModelFromSerial, st
 import { isDualNozzleModel } from "./safety/limits.js";
 import { withPrinterOperation, withPrintSnapshot, uniquePrintName } from "./safety/artifact.js";
 import { detectProfilesRoot } from "./slicer/profile-flatten.js";
+import { PLATE_BRIM_TYPES, PLATE_INFILL_PATTERNS, slicePlate, type PlatePartSpec } from "./slicer/plate-slice.js";
 import { bambuPrinterInfo, bambuSliceCapabilities } from "./counterpart/info.js";
 import { DISCOVER_OUTPUT_SCHEMA, discoverBambu } from "./counterpart/discovery.js";
 import { SETUP_FIELDS_OUTPUT_SCHEMA, bambuSetupFields, slicerSetup, type SlicerSetup } from "./counterpart/setup.js";
@@ -2913,6 +2914,77 @@ class BambuPrinterMCPServer {
             }
           },
           {
+            name: "slice_plate",
+            description: "Arrange and slice multiple STL/3MF/OBJ parts onto a single Bambu build plate with optional per-part overrides (supports, build-plate-only supports, 5 mm outer brim, wall loops, infill density/pattern, copies), verify the output via inspect_print_file, and return the ready-to-print .3mf path and plate summary. When ams_slot is given, automatically resolves the live printer's filament profile, color, and installed nozzle type/flow from that AMS slot.",
+            inputSchema: {
+              type: "object",
+              properties: {
+                parts: {
+                  type: "array",
+                  minItems: 1,
+                  maxItems: 64,
+                  description: "Parts to arrange and slice together on plate 1.",
+                  items: {
+                    type: "object",
+                    additionalProperties: false,
+                    properties: {
+                      stl_path: { type: "string", description: "Absolute path to the part's .stl, .obj, or .3mf file." },
+                      name: { type: "string", description: "Optional display name for this part on the plate." },
+                      copies: { type: "integer", minimum: 1, maximum: 20, description: "Number of copies of this part on the plate (default: 1)." },
+                      wall_loops: { type: "integer", minimum: 0, maximum: 1000, description: "Per-part wall loop count override (e.g. 4)." },
+                      sparse_infill_density: { type: "string", pattern: "^\\s*\\d+(\\.\\d+)?\\s*%\\s*$", description: "Per-part infill density percentage (e.g. '25%' or '100%')." },
+                      sparse_infill_pattern: { type: "string", enum: [...PLATE_INFILL_PATTERNS], description: "Per-part infill pattern (e.g. 'gyroid')." },
+                      enable_support: { type: "boolean", description: "Enable or disable supports specifically for this part." },
+                      support_type: { type: "string", enum: ["normal(auto)", "tree(auto)", "normal(manual)", "tree(manual)"], description: "Per-part support style (e.g. 'tree(auto)' or 'normal(auto)')." },
+                      support_on_build_plate_only: { type: "boolean", description: "Restrict this part's supports to build-plate-only contact." },
+                      support_threshold_angle: { type: "integer", minimum: 0, maximum: 90, description: "Per-part overhang threshold angle in degrees." },
+                      brim_type: { type: "string", enum: [...PLATE_BRIM_TYPES], description: "Per-part brim style (e.g. 'outer_only' or 'no_brim')." },
+                      brim_width: { type: "number", minimum: 0, maximum: 50, description: "Per-part brim width in mm (e.g. 5). Setting > 0 defaults brim_type to 'outer_only'." }
+                    },
+                    required: ["stl_path"]
+                  }
+                },
+                bambu_model: {
+                  type: "string",
+                  enum: [...VALID_BAMBU_MODELS],
+                  description: "REQUIRED: Target Bambu Lab printer model (e.g. 'p2s')."
+                },
+                ams_slot: {
+                  type: "integer",
+                  minimum: 0,
+                  maximum: 255,
+                  description: "Optional live AMS tray index (e.g. 0=A1, 1=A2, 2=A3, 3=A4). When provided, reads the printer's live AMS slot filament profile, color, and installed nozzle type/flow automatically unless overridden."
+                },
+                bed_type: {
+                  type: "string",
+                  enum: ["textured_plate", "cool_plate", "engineering_plate", "hot_plate", "supertack_plate"],
+                  description: "Build plate type (default: textured_plate)."
+                },
+                nozzle_diameter: { type: "string", description: "Nozzle diameter in mm (default: 0.4)." },
+                nozzle_type: { type: "string", enum: [...VALID_NOZZLE_TYPES], description: "Installed nozzle material (e.g. 'hardened_steel'). Auto-detected from printer when ams_slot is used." },
+                nozzle_volume_type: { type: "string", enum: [...VALID_NOZZLE_VOLUME_TYPES], description: "Installed nozzle flow type ('standard' or 'high_flow')." },
+                process_profile: { type: "string", description: "Optional Bambu Studio process preset name or JSON path (default: machine's standard 0.20mm preset)." },
+                filament_profile: { type: "string", description: "Optional Bambu Studio filament preset name or JSON path (e.g. 'Bambu PLA Basic @BBL P2S')." },
+                filament_color: { type: "string", pattern: "^#[0-9A-Fa-f]{6}$", description: "Optional filament hex color '#RRGGBB' (e.g. '#8E9089')." },
+                layer_height: { type: "number", exclusiveMinimum: 0, description: "Plate-level layer height in mm (e.g. 0.2)." },
+                wall_loops: { type: "integer", minimum: 0, maximum: 1000, description: "Plate-level default wall loops." },
+                sparse_infill_density: { type: "string", pattern: "^\\s*\\d+(\\.\\d+)?\\s*%\\s*$", description: "Plate-level default infill density (e.g. '25%')." },
+                sparse_infill_pattern: { type: "string", enum: [...PLATE_INFILL_PATTERNS], description: "Plate-level default infill pattern (e.g. 'gyroid')." },
+                enable_support: { type: "boolean", description: "Plate-level default support flag." },
+                support_type: { type: "string", enum: ["normal(auto)", "tree(auto)", "normal(manual)", "tree(manual)"], description: "Plate-level default support style." },
+                support_on_build_plate_only: { type: "boolean", description: "Plate-level default build-plate-only support flag." },
+                brim_type: { type: "string", enum: [...PLATE_BRIM_TYPES], description: "Plate-level default brim style." },
+                brim_width: { type: "number", minimum: 0, maximum: 50, description: "Plate-level default brim width in mm." },
+                out_path: { type: "string", description: "Optional destination .3mf path (parent directory is created automatically). Omit to write into the server's temporary directory." },
+                slicer_path: { type: "string", description: "Optional Bambu Studio CLI executable override (requires MCP_ALLOW_EXECUTABLE_ARG=1)." },
+                host: { type: "string", description: "Printer host/IP (used only when ams_slot is supplied; default from env)." },
+                bambu_serial: { type: "string", description: "Printer serial (used only when ams_slot is supplied; default from env)." },
+                bambu_token: { type: "string", description: "Printer access token (used only when ams_slot is supplied; default from env)." }
+              },
+              required: ["parts", "bambu_model"]
+            }
+          },
+          {
             name: "list_printer_files",
             description: "List files stored on the Bambu Lab printer: on H2-series printers, the top-level folder (directories[\"/\"], where H2-series printers keep print and upload files; listed in files as /<name>) and the cache/, timelapse/ and logs/ directories.",
             inputSchema: {
@@ -3512,7 +3584,8 @@ class BambuPrinterMCPServer {
                                 template_name: { type: "string", description: "Optional named template from the local registry. Resolves to template_3mf_path automatically." },
                                 template_dir: { type: "string", description: "Optional template directory override when resolving template_name." },
                 nozzle_diameter: { type: "string", description: "Nozzle diameter in mm for auto-slicing (default: 0.4)" },
-                nozzle_diameters: { type: "array", minItems: 1, maxItems: 2, items: { type: "number", enum: [0.2, 0.4, 0.6, 0.8] }, description: "Complete per-nozzle diameters for a pre-sliced job, e.g. [0.4, 0.6]. Omit to verify its declared diameters against live telemetry; cannot combine with nozzle_diameter." }
+                nozzle_diameters: { type: "array", minItems: 1, maxItems: 2, items: { type: "number", enum: [0.2, 0.4, 0.6, 0.8] }, description: "Complete per-nozzle diameters for a pre-sliced job, e.g. [0.4, 0.6]. Omit to verify its declared diameters against live telemetry; cannot combine with nozzle_diameter." },
+                acknowledged_hms_codes: { type: "array", items: { type: "string" }, description: "Optional non-fatal (severity 2/3) HMS codes explicitly acknowledged by the operator (e.g. ['0300-1100-0002-0002']); fatal (severity 1) faults can never be bypassed." }
                               },
               required: ["three_mf_path", "bambu_model"]
             }
@@ -4876,6 +4949,110 @@ class BambuPrinterMCPServer {
             return { content: [{ type: "text", text: sliced.path }], structuredContent: { ...reported, ...located, ...feedFacts } };
           }
 
+          case "slice_plate": {
+            if (!Array.isArray(args?.parts) || args.parts.length === 0) {
+              throw new Error("Missing required parameter: parts (non-empty array of part specifications)");
+            }
+            const sliceModel = await this.resolveBambuModel(args?.bambu_model as string | undefined);
+            const { slicerPath } = this.resolveSlicerConfigFromArgs(
+              args as Record<string, unknown> | undefined,
+              "slice_plate"
+            );
+            let nozzleDiam = String(args?.nozzle_diameter || DEFAULT_NOZZLE_DIAMETER);
+            let nozzleType = resolveNozzleType(args?.nozzle_type);
+            let nozzleVolumeType = resolveNozzleVolumeType(args?.nozzle_volume_type);
+            let filamentLeaf = typeof args?.filament_profile === "string" && args.filament_profile.trim()
+              ? args.filament_profile.trim()
+              : undefined;
+            let filamentColor = typeof args?.filament_color === "string" && args.filament_color.trim()
+              ? args.filament_color.trim()
+              : undefined;
+
+            // When ams_slot is supplied, resolve live filament preset, color, and installed nozzle
+            // from the printer so callers do not need manual hardware env overrides.
+            if (args?.ams_slot !== undefined) {
+              const amsSlot = Number(args.ams_slot);
+              if (!Number.isInteger(amsSlot) || amsSlot < 0 || amsSlot > 255) {
+                throw new Error("ams_slot must be an integer tray index from 0 to 255 (e.g. 0=A1, 1=A2, 2=A3, 3=A4).");
+              }
+              if (!bambuSerial || !bambuToken) {
+                throw new Error("Printer serial and access token are required when resolving live hardware via ams_slot.");
+              }
+              if (!nozzleType || !nozzleVolumeType || args?.nozzle_diameter === undefined) {
+                const live = await this.bambu.getSafetyStatus(host, bambuSerial, bambuToken);
+                const raw = live?.raw ?? {};
+                const devNozzle = Array.isArray(raw.device?.nozzle?.info) ? raw.device.nozzle.info[0] : undefined;
+                if (args?.nozzle_diameter === undefined) {
+                  const liveDiam = Number(devNozzle?.diameter ?? raw.nozzle_diameter);
+                  if (Number.isFinite(liveDiam) && liveDiam > 0) nozzleDiam = String(liveDiam);
+                }
+                const code = String(devNozzle?.type ?? raw.nozzle_type ?? "").trim();
+                const codeMatch = /^H([A-Z])(\d\d)/i.exec(code);
+                if (codeMatch) {
+                  const flowChar = codeMatch[1].toUpperCase();
+                  const matCode = codeMatch[2];
+                  if (!nozzleType) {
+                    const matMap: Record<string, string> = { "00": "stainless_steel", "01": "hardened_steel", "05": "tungsten_carbide" };
+                    nozzleType = matMap[matCode];
+                  }
+                  if (!nozzleVolumeType) {
+                    nozzleVolumeType = ["H", "E", "U", "B"].includes(flowChar) ? "High Flow" : "Standard";
+                  }
+                } else if (!nozzleType && typeof raw.nozzle_type === "string" && raw.nozzle_type.trim()) {
+                  try { nozzleType = resolveNozzleType(raw.nozzle_type); } catch { /* leave undefined */ }
+                }
+              }
+              const inventory = await this.getResolvedPrinterFilamentInventory(
+                host,
+                bambuSerial,
+                bambuToken,
+                sliceModel,
+                nozzleDiam
+              );
+              const matchedTray = inventory.trays.find((t) => t.slot === amsSlot);
+              if (!matchedTray || !matchedTray.loaded) {
+                throw new Error(`AMS tray ${amsSlot} is empty or not reported on printer ${bambuSerial}.`);
+              }
+              if (!filamentLeaf) {
+                filamentLeaf = matchedTray.resolved_profile_path || matchedTray.resolved_base_profile_name || undefined;
+              }
+              if (!filamentColor && typeof matchedTray.tray_color === "string" && /^[0-9A-Fa-f]{6}/.test(matchedTray.tray_color)) {
+                filamentColor = `#${matchedTray.tray_color.slice(0, 6).toUpperCase()}`;
+              }
+            }
+
+            const machineLeaf = BAMBU_MODEL_PRESETS[sliceModel]?.(nozzleDiam);
+            if (!machineLeaf) {
+              throw new Error(`No Bambu Studio machine preset registered for model '${sliceModel}' with nozzle ${nozzleDiam} mm.`);
+            }
+
+            result = await slicePlate({
+              parts: args.parts as PlatePartSpec[],
+              bambuModel: sliceModel,
+              machineLeaf,
+              processLeaf: typeof args?.process_profile === "string" ? args.process_profile : undefined,
+              filamentLeaf,
+              filamentColor,
+              nozzleDiameter: nozzleDiam,
+              nozzleType,
+              nozzleVolumeType: nozzleVolumeType ?? "Standard",
+              bedType: resolveBedType(args?.bed_type as string | undefined),
+              layerHeight: args?.layer_height !== undefined ? Number(args.layer_height) : undefined,
+              wallLoops: args?.wall_loops !== undefined ? Number(args.wall_loops) : undefined,
+              sparseInfillDensity: typeof args?.sparse_infill_density === "string" ? args.sparse_infill_density : undefined,
+              sparseInfillPattern: typeof args?.sparse_infill_pattern === "string" ? args.sparse_infill_pattern : undefined,
+              enableSupport: typeof args?.enable_support === "boolean" ? args.enable_support : undefined,
+              supportType: typeof args?.support_type === "string" ? args.support_type as any : undefined,
+              supportOnBuildPlateOnly: typeof args?.support_on_build_plate_only === "boolean" ? args.support_on_build_plate_only : undefined,
+              brimType: typeof args?.brim_type === "string" ? args.brim_type as any : undefined,
+              brimWidth: args?.brim_width !== undefined ? Number(args.brim_width) : undefined,
+              outPath: typeof args?.out_path === "string" ? args.out_path : undefined,
+              slicerPath: slicerPath || undefined,
+              tempDir: TEMP_DIR,
+            });
+            break;
+          }
+
           case "print_3mf": {
             if (!args?.three_mf_path) {
               throw new Error("Missing required parameter: three_mf_path");
@@ -5094,6 +5271,9 @@ class BambuPrinterMCPServer {
               bedType: printBedType,
               ...callerPrintOptions(args),
               timelapse: args?.timelapse !== undefined ? Boolean(args.timelapse) : undefined,
+              acknowledgedHmsCodes: Array.isArray(args?.acknowledged_hms_codes)
+                ? args.acknowledged_hms_codes.map(String)
+                : undefined,
               onUploadProgress: reportUpload,
             });
             // Report what the printer did, not merely that a command was published.

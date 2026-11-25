@@ -80,6 +80,7 @@ export const TOOL_ANNOTATIONS: Record<string, ToolAnnotations> = {
   lay_flat: LOCAL_OUTPUT,
   // Same, but a configured orca-slicer-api slices on a remote service, a new job and output each call.
   slice_stl: hints(false, true, false, true),
+  slice_plate: hints(false, true, false, true),
   slice_with_template: hints(false, true, false, true),
   // New 3MF at a caller-chosen path; never overwrites, so a repeat fails and changes nothing.
   counterpart_make_3mf: hints(false, false, true, false),
