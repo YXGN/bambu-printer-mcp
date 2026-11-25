@@ -3306,6 +3306,7 @@ class BambuPrinterMCPServer {
                 delta_z_mm: { type: "number", description: "Relative Z offset in mm within ±100 mm (+ lowers bed, - raises bed; mutually exclusive with z_mm)" },
                 speed_mm_min: { type: "number", minimum: 60, maximum: 1800, description: "Z feedrate in mm/min (default 600)" },
                 home_first: { type: "boolean", description: "Run G28 Z before moving to an absolute z_mm (default false)" },
+                acknowledged_hms_codes: { type: "array", items: { type: "string" }, description: "Optional non-fatal (severity 2/3) HMS codes explicitly acknowledged by operator (e.g. '0300-1100-0002-0002'); fatal (severity 1) faults can never be bypassed" },
                 bambu_model: { type: "string", enum: [...VALID_BAMBU_MODELS], description: "Printer model for Z-axis bounds validation (default: value from env)" },
                 host: { type: "string", description: "Hostname or IP of the printer (default: value from env)" },
                 bambu_serial: { type: "string", description: "Serial number (default: value from env)" },
@@ -3328,6 +3329,7 @@ class BambuPrinterMCPServer {
                 axes: { type: "string", enum: ["xy", "z", "xyz"], description: "For action='home': axes to home (default 'xy')" },
                 length_mm: { type: "number", minimum: 0.1, maximum: 50, description: "For action='extrude'|'retract': filament length in mm (max 50 mm)" },
                 speed_mm_min: { type: "number", description: "Feedrate in mm/min (XY: 300-12000 default 3000; park default 6000; extruder: 60-600 default 180)" },
+                acknowledged_hms_codes: { type: "array", items: { type: "string" }, description: "Optional non-fatal (severity 2/3) HMS codes explicitly acknowledged by operator; fatal (severity 1) faults can never be bypassed" },
                 bambu_model: { type: "string", enum: [...VALID_BAMBU_MODELS], description: "Printer model for XY travel limits (default: value from env)" },
                 host: { type: "string", description: "Hostname or IP of the printer (default: value from env)" },
                 bambu_serial: { type: "string", description: "Serial number (default: value from env)" },
@@ -4432,6 +4434,9 @@ class BambuPrinterMCPServer {
               deltaZMm: args?.delta_z_mm !== undefined ? Number(args.delta_z_mm) : undefined,
               speedMmMin: args?.speed_mm_min !== undefined ? Number(args.speed_mm_min) : undefined,
               homeFirst: args?.home_first === true,
+              acknowledgedHmsCodes: Array.isArray(args?.acknowledged_hms_codes)
+                ? args.acknowledged_hms_codes.map(String)
+                : undefined,
             });
             break;
           }
@@ -4452,6 +4457,9 @@ class BambuPrinterMCPServer {
               axes: args?.axes as "xy" | "z" | "xyz" | undefined,
               lengthMm: args?.length_mm !== undefined ? Number(args.length_mm) : undefined,
               speedMmMin: args?.speed_mm_min !== undefined ? Number(args.speed_mm_min) : undefined,
+              acknowledgedHmsCodes: Array.isArray(args?.acknowledged_hms_codes)
+                ? args.acknowledged_hms_codes.map(String)
+                : undefined,
             });
             break;
           }

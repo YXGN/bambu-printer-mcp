@@ -141,6 +141,57 @@ test("moveBedZ relative step restores G90 after G91 move", async () => {
   assert.equal(publishedPayloads(events).length, 1);
 });
 
+test("moveBedZ succeeds on P2S cancelled FAILED state (0x0300400C) with Y-axis resonance reminder and surfaces warning", async () => {
+  const { printer, events } = mockPrinter(mockSafetyStatus({
+    model: "p2s",
+    state: "FAILED",
+    printError: 0,
+    fail_reason: "50348044",
+    gcode_file: "/usr/etc/print/auto_cali_for_user_param.gcode",
+    subtask_name: "auto_cali_for_user_param.gcode",
+    hms: [{ attr: 50336000, code: 131074 }], // HMS 0300-1100-0002-0002
+  }));
+  const res = await printer.moveBedZ(host, serial, token, {
+    bambuModel: "p2s",
+    deltaZMm: -10,
+    speedMmMin: 300,
+  });
+  assert.equal(res.status, "success");
+  assert.deepEqual(res.gcodes, ["G91", "G1 Z-10 F300", "G90"]);
+  assert.deepEqual(res.warnings, ["HMS 0300-1100-0002-0002"]);
+  assert.equal(publishedPayloads(events).length, 1);
+});
+
+test("moveBedZ blocks fatal severity-1 HMS even if acknowledged, and blocks unacknowledged mechanical HMS", async () => {
+  // Fatal severity 1 (0300-1800-0001-0005: Z-axis motor rotation obstructed) MUST never be bypassable
+  const fatal = mockPrinter(mockSafetyStatus({
+    model: "p2s",
+    state: "IDLE",
+    hms: [{ attr: 0x03001800, code: 0x00010005 }],
+  }));
+  await assert.rejects(
+    fatal.printer.moveBedZ(host, serial, token, {
+      bambuModel: "p2s",
+      deltaZMm: -10,
+      acknowledgedHmsCodes: ["0300-1800-0001-0005"],
+    }),
+    /HMS 0300-1800-0001-0005/i
+  );
+  assert.deepEqual(publishedPayloads(fatal.events), []);
+
+  // Unacknowledged severity 2 mechanical fault (0300-1200-0002-0001: front cover fell off) MUST block
+  const coverOff = mockPrinter(mockSafetyStatus({
+    model: "p2s",
+    state: "IDLE",
+    hms: [{ attr: 0x03001200, code: 0x00020001 }],
+  }));
+  await assert.rejects(
+    coverOff.printer.moveBedZ(host, serial, token, { bambuModel: "p2s", deltaZMm: -10 }),
+    /HMS 0300-1200-0002-0001/i
+  );
+  assert.deepEqual(publishedPayloads(coverOff.events), []);
+});
+
 for (const [label, status] of [
   ["actively printing (RUNNING)", mockSafetyStatus({ state: "RUNNING" })],
   ["paused print (PAUSE)", mockSafetyStatus({ state: "PAUSE" })],

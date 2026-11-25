@@ -21,6 +21,12 @@ export interface PrinterStateRequirements {
     usedNozzleIndices?: number[];
     nozzleTypes?: string[];
     nozzleFlows?: string[];
+    /**
+     * Optional list of non-fatal (severity 2/3) HMS hex codes explicitly acknowledged for
+     * bounded maintenance/motion operations. Fatal (severity 1) and unknown-severity entries
+     * can never be bypassed.
+     */
+    acknowledgedHmsCodes?: string[];
 }
 interface ReportedNozzle {
     index: number;
@@ -42,8 +48,10 @@ export interface ValidatedPrinterState {
 }
 export declare function finiteNumber(value: unknown): number | undefined;
 /** Models observed retaining FAILED with fail_reason 0300400C after a canceled job:
- * X2D, and H2C (a fresh report after a Stop: FAILED, print_error 0, fail_reason
- * "50348044", the stopped job's name and file). Add a model only with that hardware evidence. */
+ * X2D, H2C (a fresh report after a Stop: FAILED, print_error 0, fail_reason
+ * "50348044", the stopped job's name and file), and P2S (firmware 01.01.03.00:
+ * FAILED, print_error 0, fail_reason "50348044", named job file).
+ * Add a model only with that hardware evidence. */
 export declare const CANCELLED_JOB_MODELS: ReadonlySet<string>;
 /**
  * X2D and H2C retain FAILED after a canceled job even with no active print error.
@@ -72,6 +80,16 @@ export type HmsEntry = {
     hex: string;
 };
 export declare function hmsCode(entry: any): HmsEntry | undefined;
+/**
+ * Pure calibration/maintenance reminders that persist in raw.hms across clean_print_error
+ * ("conduct a calibration after printing") and do not represent a mechanical, thermal, or
+ * axis-obstruction fault during bounded manual jogging.
+ */
+export declare const NON_BLOCKING_MOTION_MAINTENANCE_HMS: ReadonlySet<string>;
+/** Normalize user/internal HMS code strings ("HMS 0300-1100-0002-0002", "0300_1100_0002_0002", or 16-hex) to uppercase 16-hex. */
+export declare function normalizeHmsHex(value: unknown): string | undefined;
+/** Return formatted HMS labels for non-fatal entries in raw.hms matched by the provided acknowledged code list. */
+export declare function collectAcknowledgedHmsLabels(raw: unknown, codes?: readonly string[]): string[];
 /** The one key format for a reported entry, shared by the gate and clear_hms_errors. */
 export declare function reportedHmsKey(entry: unknown): string;
 /** Bambu's display form of a cleared-code key such as "hms:83887616:131184"; other keys unchanged. */

@@ -26,6 +26,7 @@ export interface BedZMotionOptions {
   deltaZMm?: number;
   speedMmMin?: number;
   homeFirst?: boolean;
+  acknowledgedHmsCodes?: string[];
 }
 
 export interface BedZMotionPlan {
@@ -53,6 +54,7 @@ export interface ToolheadControlOptions {
   axes?: HomeAxes;
   lengthMm?: number;
   speedMmMin?: number;
+  acknowledgedHmsCodes?: string[];
 }
 
 export interface ToolheadControlPlan {

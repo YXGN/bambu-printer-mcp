@@ -20,7 +20,7 @@ import { inspectPrintFile } from "../safety/print-file.js";
 import { isDualNozzleModel, normalizeModel, validateTemperature } from "../safety/limits.js";
 import { buildBedZMotionGcode, buildToolheadControlGcode, extractObservedNozzleTempC, MIN_SAFE_EXTRUSION_TEMP_C, } from "../safety/motion.js";
 import { bridgeAmsMapping2Entry, bridgeAmsMappingValue, externalTrayForNozzle, describeAmsTrayRange, studioAmsMapping } from "../ams-mapping.js";
-import { describeHmsKey, hiddenHmsKeys, hiddenHmsNotices, reportedHmsKey, unchippedNozzles, validatePrinterState, manualHeatingRequirements } from "../safety/printer-state.js";
+import { collectAcknowledgedHmsLabels, describeHmsKey, hiddenHmsKeys, hiddenHmsNotices, NON_BLOCKING_MOTION_MAINTENANCE_HMS, reportedHmsKey, unchippedNozzles, validatePrinterState, manualHeatingRequirements, } from "../safety/printer-state.js";
 import { withPrinterOperation, withPrintSnapshot, uniquePrintName, normalizedRemotePath, cancelPendingPrinterOperations } from "../safety/artifact.js";
 import { RTSP_CAMERA_MODELS, TCP_CAMERA_MODELS } from "./camera-models.js";
 import { directPrintOptionReport, resolveStudioPrintOptions, usedNozzleCount } from "../studio-print-options.js";
@@ -1674,9 +1674,16 @@ export class BambuImplementation {
      */
     async moveBedZ(host, serial, token, options) {
         const plan = buildBedZMotionGcode(options);
+        const allowedHms = [...NON_BLOCKING_MOTION_MAINTENANCE_HMS, ...(options.acknowledgedHmsCodes ?? [])];
         return withPrinterOperation(host, serial, async (assertActive) => {
             const status = await this.getSafetyStatus(host, serial, token);
-            validatePrinterState(status, { model: plan.model, nozzleDiameters: [], requireIdle: true });
+            validatePrinterState(status, {
+                model: plan.model,
+                nozzleDiameters: [],
+                requireIdle: true,
+                acknowledgedHmsCodes: allowedHms,
+            });
+            const warnings = collectAcknowledgedHmsLabels(status.raw, allowedHms);
             assertActive();
             const printer = await this.getPrinter(host, serial, token);
             assertActive();
@@ -1694,6 +1701,7 @@ export class BambuImplementation {
                 speed_mm_min: plan.speedMmMin,
                 home_first: plan.homeFirst,
                 gcodes: plan.gcodes,
+                ...(warnings.length ? { warnings } : {}),
             };
         });
     }
@@ -1705,9 +1713,16 @@ export class BambuImplementation {
     async controlToolhead(host, serial, token, options) {
         // Validate syntax, model, and geometric limits before connecting to the printer.
         const precheck = buildToolheadControlGcode(options);
+        const allowedHms = [...NON_BLOCKING_MOTION_MAINTENANCE_HMS, ...(options.acknowledgedHmsCodes ?? [])];
         return withPrinterOperation(host, serial, async (assertActive) => {
             const status = await this.getSafetyStatus(host, serial, token);
-            validatePrinterState(status, { model: precheck.model, nozzleDiameters: [], requireIdle: true });
+            validatePrinterState(status, {
+                model: precheck.model,
+                nozzleDiameters: [],
+                requireIdle: true,
+                acknowledgedHmsCodes: allowedHms,
+            });
+            const warnings = collectAcknowledgedHmsLabels(status.raw, allowedHms);
             assertActive();
             let observedNozzleTempC;
             if (precheck.requiresHotNozzle) {
@@ -1730,6 +1745,7 @@ export class BambuImplementation {
                 speed_mm_min: plan.speedMmMin,
                 observed_nozzle_temp_c: observedNozzleTempC,
                 gcodes: plan.gcodes,
+                ...(warnings.length ? { warnings } : {}),
             };
         });
     }

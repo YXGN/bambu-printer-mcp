@@ -125,6 +125,12 @@ export interface PrinterStateRequirements {
   usedNozzleIndices?: number[];
   nozzleTypes?: string[];
   nozzleFlows?: string[];
+  /**
+   * Optional list of non-fatal (severity 2/3) HMS hex codes explicitly acknowledged for
+   * bounded maintenance/motion operations. Fatal (severity 1) and unknown-severity entries
+   * can never be bypassed.
+   */
+  acknowledgedHmsCodes?: string[];
 }
 interface ReportedNozzle { index: number; diameter: number; type?: string; flow?: string }
 interface ReportedFilament { position: number; material: string; trayIndex: number; nozzleMin?: number; nozzleMax?: number }
@@ -137,9 +143,11 @@ export function finiteNumber(value: unknown): number | undefined {
 }
 
 /** Models observed retaining FAILED with fail_reason 0300400C after a canceled job:
- * X2D, and H2C (a fresh report after a Stop: FAILED, print_error 0, fail_reason
- * "50348044", the stopped job's name and file). Add a model only with that hardware evidence. */
-export const CANCELLED_JOB_MODELS: ReadonlySet<string> = new Set(["x2d", "h2c"]);
+ * X2D, H2C (a fresh report after a Stop: FAILED, print_error 0, fail_reason
+ * "50348044", the stopped job's name and file), and P2S (firmware 01.01.03.00:
+ * FAILED, print_error 0, fail_reason "50348044", named job file).
+ * Add a model only with that hardware evidence. */
+export const CANCELLED_JOB_MODELS: ReadonlySet<string> = new Set(["x2d", "h2c", "p2s"]);
 /**
  * X2D and H2C retain FAILED after a canceled job even with no active print error.
  * Bambu Studio classifies FAILED as a finished job; its v02.08.02.61
@@ -295,6 +303,41 @@ export function hmsCode(entry: any): HmsEntry | undefined {
 const hmsLabel = (hex: string) => `HMS ${hex.slice(0, 4)}-${hex.slice(4, 8)}-${hex.slice(8, 12)}-${hex.slice(12)}`;
 const hmsKey = (entry: HmsEntry) => `hms:${entry.attr}:${entry.code}`;
 
+/**
+ * Pure calibration/maintenance reminders that persist in raw.hms across clean_print_error
+ * ("conduct a calibration after printing") and do not represent a mechanical, thermal, or
+ * axis-obstruction fault during bounded manual jogging.
+ */
+export const NON_BLOCKING_MOTION_MAINTENANCE_HMS: ReadonlySet<string> = new Set([
+  "0300100000020002", // X-axis resonance frequency differs from last calibration
+  "0300110000020002", // Y-axis resonance frequency differs from last calibration
+  "03002E0000030001", // Motor noise cancellation data needs recalibration
+]);
+
+/** Normalize user/internal HMS code strings ("HMS 0300-1100-0002-0002", "0300_1100_0002_0002", or 16-hex) to uppercase 16-hex. */
+export function normalizeHmsHex(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const cleaned = value.trim().replace(/^HMS\s+/i, "").replace(/[-_\s]/g, "").toUpperCase();
+  return /^[0-9A-F]{16}$/.test(cleaned) ? cleaned : undefined;
+}
+
+/** Return formatted HMS labels for non-fatal entries in raw.hms matched by the provided acknowledged code list. */
+export function collectAcknowledgedHmsLabels(raw: unknown, codes?: readonly string[]): string[] {
+  if (!object(raw) || !Array.isArray(raw.hms) || !codes?.length) return [];
+  const allowed = new Set(codes.map(normalizeHmsHex).filter((hex): hex is string => !!hex));
+  if (!allowed.size) return [];
+  const seen = new Set<string>();
+  const labels: string[] = [];
+  for (const reported of raw.hms) {
+    const entry = hmsCode(reported);
+    if (!entry || (entry.severity !== 2 && entry.severity !== 3)) continue;
+    if (!allowed.has(entry.hex) || seen.has(entry.hex)) continue;
+    seen.add(entry.hex);
+    labels.push(hmsLabel(entry.hex));
+  }
+  return labels;
+}
+
 /** The one key format for a reported entry, shared by the gate and clear_hms_errors. */
 export function reportedHmsKey(entry: unknown): string {
   const parsed = hmsCode(entry);
@@ -366,17 +409,19 @@ export function isPauseNotice(raw: Record<string, any>, requireIdle: boolean): b
   const state = typeof raw?.gcode_state === "string" ? raw.gcode_state.toUpperCase() : "";
   return !requireIdle && state === "PAUSE" && finiteNumber(raw?.print_error) === PAUSE_NOTICE;
 }
-function validateErrors(raw: Record<string,any>, requireIdle: boolean, serial: string, model: string) {
+function validateErrors(raw: Record<string,any>, requireIdle: boolean, serial: string, model: string, acknowledgedHmsCodes?: readonly string[]) {
   const state = typeof raw.gcode_state === "string" ? raw.gcode_state.toUpperCase() : "UNKNOWN";
   const terminal = isCancelledJob(raw, model) || isFinishedIdleJob(raw, model);
   if (requireIdle && !["IDLE","FINISH"].includes(state) && !terminal) throw new PrinterRefusal("printer-not-ready", `Printer state ${state} is not safely idle.`);
   if (!requireIdle && !["IDLE","FINISH","RUNNING","PAUSE"].includes(state) && !terminal) throw new Error(`Printer state ${state} is unknown or failed.`);
   if (finiteNumber(raw.print_error) !== 0 && !isPauseNotice(raw, requireIdle)) throw new Error("Printer reports a print error or did not report its error state.");
   if (!Array.isArray(raw.hms)) throw new Error("Printer HMS error state is missing or malformed.");
+  const acknowledged = new Set((acknowledgedHmsCodes ?? []).map(normalizeHmsHex).filter((hex): hex is string => !!hex));
   for (const reported of raw.hms) {
     const entry = hmsCode(reported);
-    // Unknown severities fail closed; attr identifies the module and is not a severity bitmask.
+    // Unknown severities and fatal (severity 1) faults always fail closed; attr identifies the module and is not a severity bitmask.
     if (entry && (entry.severity === 4 || isHiddenNotice(serial, model, entry))) continue;
+    if (entry && (entry.severity === 2 || entry.severity === 3) && acknowledged.has(entry.hex)) continue;
     throw new Error(`Printer reports actionable or unknown HMS errors${entry ? ` (${hmsLabel(entry.hex)})` : ""}; inspect and resolve them before proceeding.`);
   }
   logHiddenNotices(raw, serial, model);
@@ -440,7 +485,7 @@ export function validatePrinterState(status: any, requirements: PrinterStateRequ
   assertNotStatusOnly(identity.model);
   const model = normalizeModel(requirements.model);
   if (!model || !identity.model || model !== identity.model) throw new Error(`Printer model identity mismatch: requested ${requirements.model}, observed ${identity.model ?? "unknown"}.`);
-  validateErrors(raw, requirements.requireIdle !== false, identity.observedSerial ?? "", model);
+  validateErrors(raw, requirements.requireIdle !== false, identity.observedSerial ?? "", model, requirements.acknowledgedHmsCodes);
   if (requirements.requireLoadedFilament && (raw.ams?.tray_now !== undefined || Array.isArray(raw.ams?.ams))) {
     const current = finiteNumber(raw.ams?.tray_now);
     if (current === 255) throw new Error("The nozzle is explicitly reported unloaded. Load the declared filament before starting or resuming this G-code job.");

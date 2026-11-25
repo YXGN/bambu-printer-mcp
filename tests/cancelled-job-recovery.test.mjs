@@ -45,6 +45,21 @@ test('the exact clean H2C cancellation qualifies as terminal', () => {
   ]) assert.throws(() => validatePrinterState(h2c(overrides), required), JSON.stringify(overrides));
 });
 
+// P2S (serial prefix 22E, firmware 01.01.03.00): gcode_state FAILED, print_error 0,
+// fail_reason "50348044" (0300400C), named job file.
+test('the exact clean P2S cancellation qualifies as terminal', () => {
+  const p2s = overrides => ({
+    ...fresh(canceled({ model: 'p2s', nozzle_diameter: '0.4', vir_slot: undefined, vt_tray: { tray_type: 'PLA' }, ...overrides })),
+    serial: '22ECANCELTEST',
+  });
+  const required = { model: 'p2s', nozzleDiameters: [0.4], verifyMaterials: false };
+  assert.doesNotThrow(() => validatePrinterState(p2s(), required));
+  for (const overrides of [
+    { fail_reason: undefined }, { fail_reason: 0 }, { fail_reason: 0x0300400d }, { print_error: 123 },
+    { subtask_name: '', gcode_file: '' }, { gcode_state: 'RUNNING' }, { hms: [{ attr: 1, code: 0x20001 }] },
+  ]) assert.throws(() => validatePrinterState(p2s(overrides), required), JSON.stringify(overrides));
+});
+
 test('the same canceled report from a matching non-X2D printer stays blocked', () => {
   for (const [model, prefix, nozzles] of [['h2d', '094', ['0.4', '0.4']], ['h2dpro', '239', ['0.4', '0.4']], ['p1s', '01P', ['0.4']]]) {
     const status = { ...fresh(canceled({ model, nozzle_diameter: nozzles })), serial: `${prefix}CANCELTEST` };
