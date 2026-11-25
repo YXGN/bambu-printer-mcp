@@ -71,6 +71,8 @@ export const REMOTE_SCOPES: Readonly<Record<string, RemoteScope>> = {
   set_airduct_mode: "control",
   reread_ams_rfid: "control",
   set_temperature: "control",
+  move_bed_z: "control",
+  control_toolhead: "control",
   set_fan_speed: "control",
   set_light: "control",
   set_ams_drying: "control",

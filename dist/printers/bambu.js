@@ -18,6 +18,7 @@ import os from "node:os";
 import { readSafe3mfArchive } from "../safety/archive.js";
 import { inspectPrintFile } from "../safety/print-file.js";
 import { isDualNozzleModel, normalizeModel, validateTemperature } from "../safety/limits.js";
+import { buildBedZMotionGcode, buildToolheadControlGcode, extractObservedNozzleTempC, MIN_SAFE_EXTRUSION_TEMP_C, } from "../safety/motion.js";
 import { bridgeAmsMapping2Entry, bridgeAmsMappingValue, externalTrayForNozzle, describeAmsTrayRange, studioAmsMapping } from "../ams-mapping.js";
 import { describeHmsKey, hiddenHmsKeys, hiddenHmsNotices, reportedHmsKey, unchippedNozzles, validatePrinterState, manualHeatingRequirements } from "../safety/printer-state.js";
 import { withPrinterOperation, withPrintSnapshot, uniquePrintName, normalizedRemotePath, cancelPendingPrinterOperations } from "../safety/artifact.js";
@@ -1666,6 +1667,71 @@ export class BambuImplementation {
             return send(() => undefined);
         }
         return withPrinterOperation(host, serial, send);
+    }
+    /**
+     * Move the heatbed along the Z axis via bounded MQTT gcode_line commands.
+     * Requires fresh idle printer telemetry with no blocking HMS errors before dispatch.
+     */
+    async moveBedZ(host, serial, token, options) {
+        const plan = buildBedZMotionGcode(options);
+        return withPrinterOperation(host, serial, async (assertActive) => {
+            const status = await this.getSafetyStatus(host, serial, token);
+            validatePrinterState(status, { model: plan.model, nozzleDiameters: [], requireIdle: true });
+            assertActive();
+            const printer = await this.getPrinter(host, serial, token);
+            assertActive();
+            await invokeWithoutAck(printer, new GCodeLineCommand({ gcodes: plan.gcodes }));
+            return {
+                status: "success",
+                message: plan.mode === "absolute"
+                    ? `Heatbed Z moved to ${plan.zMm} mm at ${plan.speedMmMin} mm/min.`
+                    : `Heatbed Z moved relatively by ${plan.deltaZMm} mm at ${plan.speedMmMin} mm/min.`,
+                model: plan.model,
+                mode: plan.mode,
+                z_mm: plan.zMm,
+                delta_z_mm: plan.deltaZMm,
+                max_z_mm: plan.maxZMm,
+                speed_mm_min: plan.speedMmMin,
+                home_first: plan.homeFirst,
+                gcodes: plan.gcodes,
+            };
+        });
+    }
+    /**
+     * Control the toolhead / nozzle (XY move, home, safe park, or hot extrude/retract)
+     * via bounded MQTT gcode_line commands. Requires fresh idle printer telemetry and
+     * enforces cold-extrusion protection (>= 170 C) for extrude/retract actions.
+     */
+    async controlToolhead(host, serial, token, options) {
+        // Validate syntax, model, and geometric limits before connecting to the printer.
+        const precheck = buildToolheadControlGcode(options);
+        return withPrinterOperation(host, serial, async (assertActive) => {
+            const status = await this.getSafetyStatus(host, serial, token);
+            validatePrinterState(status, { model: precheck.model, nozzleDiameters: [], requireIdle: true });
+            assertActive();
+            let observedNozzleTempC;
+            if (precheck.requiresHotNozzle) {
+                observedNozzleTempC = extractObservedNozzleTempC(status.raw);
+                if (observedNozzleTempC === undefined) {
+                    throw new Error(`Cannot verify live nozzle temperature before ${precheck.action}; minimum ${MIN_SAFE_EXTRUSION_TEMP_C}°C is required.`);
+                }
+            }
+            const plan = buildToolheadControlGcode(options, observedNozzleTempC);
+            const printer = await this.getPrinter(host, serial, token);
+            assertActive();
+            await invokeWithoutAck(printer, new GCodeLineCommand({ gcodes: plan.gcodes }));
+            return {
+                status: "success",
+                message: `Toolhead '${plan.action}' command sent on ${plan.model.toUpperCase()}.`,
+                model: plan.model,
+                action: plan.action,
+                mode: plan.mode,
+                target: plan.target,
+                speed_mm_min: plan.speedMmMin,
+                observed_nozzle_temp_c: observedNozzleTempC,
+                gcodes: plan.gcodes,
+            };
+        });
     }
     async setFanSpeed(host, serial, token, fan, speed) {
         const printer = await this.getPrinter(host, serial, token);

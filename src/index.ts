@@ -3296,6 +3296,47 @@ class BambuPrinterMCPServer {
             }
           },
           {
+            name: "move_bed_z",
+            description: "Safely raise or lower the heatbed along the Z axis (absolute z_mm or relative delta_z_mm) when the printer is idle with no blocking HMS faults. On Bambu CoreXY printers (P2S/P1S/X1C), larger Z lowers the bed.",
+            inputSchema: {
+              type: "object",
+              properties: {
+                mode: { type: "string", enum: ["absolute", "relative"], description: "Positioning mode (inferred from z_mm or delta_z_mm when omitted)" },
+                z_mm: { type: "number", minimum: 0, description: "Target absolute Z height in mm within the printer's Z build volume (mutually exclusive with delta_z_mm)" },
+                delta_z_mm: { type: "number", description: "Relative Z offset in mm within ±100 mm (+ lowers bed, - raises bed; mutually exclusive with z_mm)" },
+                speed_mm_min: { type: "number", minimum: 60, maximum: 1800, description: "Z feedrate in mm/min (default 600)" },
+                home_first: { type: "boolean", description: "Run G28 Z before moving to an absolute z_mm (default false)" },
+                bambu_model: { type: "string", enum: [...VALID_BAMBU_MODELS], description: "Printer model for Z-axis bounds validation (default: value from env)" },
+                host: { type: "string", description: "Hostname or IP of the printer (default: value from env)" },
+                bambu_serial: { type: "string", description: "Serial number (default: value from env)" },
+                bambu_token: { type: "string", description: "Access token (default: value from env)" }
+              }
+            }
+          },
+          {
+            name: "control_toolhead",
+            description: "Safely control the Bambu printer toolhead / nozzle when idle: XY positioning (move), axis homing (home), rear-corner chamber clearance parking (park), or hot filament extrude/retract (requires live nozzle temp >= 170°C).",
+            inputSchema: {
+              type: "object",
+              properties: {
+                action: { type: "string", enum: ["move", "home", "park", "extrude", "retract"], description: "Toolhead action to execute" },
+                mode: { type: "string", enum: ["absolute", "relative"], description: "For action='move': positioning mode (inferred from coordinates when omitted)" },
+                x_mm: { type: "number", minimum: 0, description: "For action='move' (absolute): target X position in mm" },
+                y_mm: { type: "number", minimum: 0, description: "For action='move' (absolute): target Y position in mm" },
+                delta_x_mm: { type: "number", description: "For action='move' (relative): relative X offset in mm within ±150 mm" },
+                delta_y_mm: { type: "number", description: "For action='move' (relative): relative Y offset in mm within ±150 mm" },
+                axes: { type: "string", enum: ["xy", "z", "xyz"], description: "For action='home': axes to home (default 'xy')" },
+                length_mm: { type: "number", minimum: 0.1, maximum: 50, description: "For action='extrude'|'retract': filament length in mm (max 50 mm)" },
+                speed_mm_min: { type: "number", description: "Feedrate in mm/min (XY: 300-12000 default 3000; park default 6000; extruder: 60-600 default 180)" },
+                bambu_model: { type: "string", enum: [...VALID_BAMBU_MODELS], description: "Printer model for XY travel limits (default: value from env)" },
+                host: { type: "string", description: "Hostname or IP of the printer (default: value from env)" },
+                bambu_serial: { type: "string", description: "Serial number (default: value from env)" },
+                bambu_token: { type: "string", description: "Access token (default: value from env)" }
+              },
+              required: ["action"]
+            }
+          },
+          {
             name: "set_fan_speed",
             description: "Set a Bambu printer fan speed percentage. X2D on macOS, or Linux with the native helper installed, uses Bambu's networking plug-in without UI automation; other models use MQTT.",
             inputSchema: {
@@ -4379,6 +4420,39 @@ class BambuPrinterMCPServer {
                   }
                 : undefined
             );
+            break;
+          }
+
+          case "move_bed_z": {
+            const motionModel = await this.resolveBambuModel(args?.bambu_model as string | undefined);
+            result = await this.bambu.moveBedZ(host, bambuSerial, bambuToken, {
+              bambuModel: motionModel,
+              mode: args?.mode as "absolute" | "relative" | undefined,
+              zMm: args?.z_mm !== undefined ? Number(args.z_mm) : undefined,
+              deltaZMm: args?.delta_z_mm !== undefined ? Number(args.delta_z_mm) : undefined,
+              speedMmMin: args?.speed_mm_min !== undefined ? Number(args.speed_mm_min) : undefined,
+              homeFirst: args?.home_first === true,
+            });
+            break;
+          }
+
+          case "control_toolhead": {
+            if (!args?.action) {
+              throw new Error("Missing required parameter: action");
+            }
+            const motionModel = await this.resolveBambuModel(args?.bambu_model as string | undefined);
+            result = await this.bambu.controlToolhead(host, bambuSerial, bambuToken, {
+              bambuModel: motionModel,
+              action: String(args.action) as "move" | "home" | "park" | "extrude" | "retract",
+              mode: args?.mode as "absolute" | "relative" | undefined,
+              xMm: args?.x_mm !== undefined ? Number(args.x_mm) : undefined,
+              yMm: args?.y_mm !== undefined ? Number(args.y_mm) : undefined,
+              deltaXMm: args?.delta_x_mm !== undefined ? Number(args.delta_x_mm) : undefined,
+              deltaYMm: args?.delta_y_mm !== undefined ? Number(args.delta_y_mm) : undefined,
+              axes: args?.axes as "xy" | "z" | "xyz" | undefined,
+              lengthMm: args?.length_mm !== undefined ? Number(args.length_mm) : undefined,
+              speedMmMin: args?.speed_mm_min !== undefined ? Number(args.speed_mm_min) : undefined,
+            });
             break;
           }
 

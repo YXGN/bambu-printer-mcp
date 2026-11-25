@@ -1,6 +1,7 @@
 import { FlightRecords, type PrintGeometry } from "../counterpart/flight-record.js";
 import { CameraStreams, type FrameOptions } from "./camera-stream.js";
 import { inspectPrintFile, type PrintFileInspection } from "../safety/print-file.js";
+import { type BedZMotionOptions, type ToolheadControlOptions } from "../safety/motion.js";
 import { type PrinterStateRequirements } from "../safety/printer-state.js";
 /**
  * X1C firmware 01.12.00.00 was seen refusing every FTPS STOR with
@@ -185,6 +186,17 @@ export declare class BambuImplementation {
         message: string;
         command: string;
     }>;
+    /**
+     * Move the heatbed along the Z axis via bounded MQTT gcode_line commands.
+     * Requires fresh idle printer telemetry with no blocking HMS errors before dispatch.
+     */
+    moveBedZ(host: string, serial: string, token: string, options: BedZMotionOptions): Promise<any>;
+    /**
+     * Control the toolhead / nozzle (XY move, home, safe park, or hot extrude/retract)
+     * via bounded MQTT gcode_line commands. Requires fresh idle printer telemetry and
+     * enforces cold-extrusion protection (>= 170 C) for extrude/retract actions.
+     */
+    controlToolhead(host: string, serial: string, token: string, options: ToolheadControlOptions): Promise<any>;
     setFanSpeed(host: string, serial: string, token: string, fan: string | number, speed: number): Promise<{
         status: string;
         message: string;

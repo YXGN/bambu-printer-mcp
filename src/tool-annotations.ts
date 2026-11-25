@@ -109,6 +109,8 @@ export const TOOL_ANNOTATIONS: Record<string, ToolAnnotations> = {
   set_print_speed: SET_PRINTER,
   set_airduct_mode: SET_PRINTER,
   set_temperature: SET_PRINTER,
+  move_bed_z: hints(false, false, false, true), // moves the heatbed along Z
+  control_toolhead: hints(false, false, false, true), // moves toolhead or feeds filament
   set_fan_speed: SET_PRINTER,
   set_light: SET_PRINTER,
   set_ams_drying: SET_PRINTER,
