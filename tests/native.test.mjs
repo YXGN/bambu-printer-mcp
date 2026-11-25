@@ -774,7 +774,7 @@ test("Linux native upload rejects a model without the native route before asking
   const result = await s.client.callTool({ name: "upload_file", arguments: {
     file_path: s.file, filename: "cube.3mf", connection_mode: "bambu_native", bambu_model: "p1s" } });
   assert.equal(result.isError, true);
-  assert.match(result.content[0].text, /restricted to X2D and X1C/);
+  assert.match(result.content[0].text, /restricted to X2D, X1C, and P2S/);
   assert.doesNotMatch(result.content[0].text, /native-setup/);
   assert.deepEqual(await s.events(), []);
 });
@@ -818,7 +818,7 @@ test("native printing stays refused for a model without the native route", async
   const s = await server(t, { model: "p1s" });
   const result = await s.print({ connection_mode: "bambu_native", ams_slots: [0] });
   assert.equal(result.isError, true);
-  assert.match(result.content[0].text, /restricted to X2D and X1C/);
+  assert.match(result.content[0].text, /restricted to X2D, X1C, and P2S/);
   assert.deepEqual(await s.events(), []);
 });
 

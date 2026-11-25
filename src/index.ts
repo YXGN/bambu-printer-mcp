@@ -269,10 +269,11 @@ type BambuModel = typeof VALID_BAMBU_MODELS[number];
 // jobs take the correct branch instead of the legacy 5-slot mapping.
 const H2_BAMBU_MODELS = new Set<string>(["h2d", "h2dpro", "h2s", "h2c", "x2d"]);
 // Models that may print and upload over connection_mode=bambu_native. X2D
-// defaults to it. X1C opts in: firmware 01.12.00.00 was seen refusing every
-// direct FTPS STOR with 553 while Bambu Studio's plug-in still printed.
-const NATIVE_ROUTE_MODELS = new Set<string>(["x2d", "x1c"]);
-const NATIVE_ROUTE_RESTRICTION = "connection_mode=bambu_native is restricted to X2D and X1C.";
+// defaults to it. X1C and P2S opt in: X1C firmware 01.12.00.00 refused direct
+// FTPS STOR with 553, and P2S without a USB drive returns FTPS 553 while
+// Bambu Studio's plug-in streams directly to internal eMMC storage.
+const NATIVE_ROUTE_MODELS = new Set<string>(["x2d", "x1c", "p2s"]);
+const NATIVE_ROUTE_RESTRICTION = "connection_mode=bambu_native is restricted to X2D, X1C, and P2S.";
 
 const VALID_BED_TYPES = ["textured_plate", "cool_plate", "engineering_plate", "hot_plate", "supertack_plate"] as const;
 const VALID_NOZZLE_TYPES = ["stainless_steel", "hardened_steel", "tungsten_carbide", "brass"] as const;
@@ -1886,7 +1887,14 @@ class BambuPrinterMCPServer {
           }
         }
       }
-      const requirements = { ...inspection, amsMapping: mapping, useAMS };
+      const requirements = {
+        ...inspection,
+        amsMapping: mapping,
+        useAMS,
+        ...(Array.isArray(args?.acknowledged_hms_codes) && args.acknowledged_hms_codes.length
+          ? { acknowledgedHmsCodes: args.acknowledged_hms_codes.map(String) }
+          : {}),
+      };
       const initialStatus = await this.bambu.getSafetyStatus(devIp, devId, password || bambuToken);
       validatePrinterState(initialStatus, requirements);
       const preflight = await this.bambu.confirmPrintPreflight(devId, initialStatus, inspection);
@@ -3524,9 +3532,9 @@ class BambuPrinterMCPServer {
                 connection_mode: {
                   type: "string",
                   enum: ["lan_mqtt_ftps", "bambu_network", "bambu_native", "bambu_connect"],
-                  description: "Print path: bambu_connect hands a printable file to the signed-in Bambu Connect app for cloud-mode review; X2D otherwise defaults to bambu_native (Bambu Studio's installed local networking plug-in, storing the job on a ready SD card or USB stick, otherwise internal eMMC); X1C may opt in to bambu_native, for example when its firmware refuses FTPS uploads with 553; lan_mqtt_ftps is the legacy direct MQTT/FTPS path; bambu_network uses the FULU bridge."
+                  description: "Print path: bambu_connect hands a printable file to the signed-in Bambu Connect app for cloud-mode review; X2D otherwise defaults to bambu_native (Bambu Studio's installed local networking plug-in, storing the job on a ready SD card or USB stick, otherwise internal eMMC); X1C and P2S may opt in to bambu_native (e.g. when FTPS returns 553 or no USB drive is inserted on P2S and internal eMMC streaming is needed); lan_mqtt_ftps is the legacy direct MQTT/FTPS path; bambu_network uses the FULU bridge."
                 },
-                try_emmc_print: { type: "boolean", description: "X2D native printing: true stores the job on internal storage (eMMC), false on the SD card or USB stick (refused unless the printer reports one ready). Omit to use the card when ready, else eMMC; X1C requires fresh advertised internal-printing support before using eMMC. BAMBU_NATIVE_TRY_EMMC_PRINT sets a server default." },
+                try_emmc_print: { type: "boolean", description: "Native printing (X2D/X1C/P2S): true stores the job on internal storage (eMMC) without needing an SD card or USB stick, false requires an external card/USB stick. Omit to use external storage when ready, else internal eMMC; X1C requires fresh advertised internal-printing support before using eMMC. BAMBU_NATIVE_TRY_EMMC_PRINT sets a server default." },
                 connection_type: { type: "string", enum: ["cloud", "lan"], description: "BambuNetwork connection type when connection_mode is bambu_network; cloud uses restored internet printing, lan uses local bridge printing." },
                 bambu_network_method: { type: "string", enum: BAMBU_NETWORK_PRINT_METHODS, description: "FULU print method when connection_mode is bambu_network; defaults to start_local_print for lan, and for cloud to Bambu Studio's order: start_local_print_with_record, then start_print if that fails." },
                 dev_id: { type: "string", description: "Bambu device id for FULU BambuNetwork printing; defaults to BAMBU_DEV_ID or BAMBU_SERIAL." },
